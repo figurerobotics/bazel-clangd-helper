@@ -101,6 +101,7 @@ def _compile_commands_aspect_impl(target, ctx):
 compile_commands_aspect = aspect(
     implementation = _compile_commands_aspect_impl,
     fragments = ["cpp"],
+    attr_aspects = ["deps"],
     attrs = {
         "_cc_toolchain": attr.label(default = Label("@bazel_tools//tools/cpp:current_cc_toolchain")),
         "_generate_executable": attr.label(
