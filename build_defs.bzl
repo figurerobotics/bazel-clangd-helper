@@ -44,6 +44,10 @@ def _get_toolchain_flags(ctx, is_cpp):
     )
 
 def _compile_commands_aspect_impl(target, ctx):
+    # Ignore external targets.
+    if target.label.workspace_root.startswith("external"):
+        return []
+
     if CcInfo not in target:
         return []
 
@@ -52,6 +56,9 @@ def _compile_commands_aspect_impl(target, ctx):
         for src in ctx.rule.attr.srcs:
             # Ignore generated files.
             srcs += [f for f in src.files.to_list() if f.is_source]
+
+    if len(srcs) == 0:
+        return []
 
     is_cpp = _is_cpp_srcs(srcs)
 
