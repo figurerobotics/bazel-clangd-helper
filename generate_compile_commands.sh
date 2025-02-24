@@ -33,9 +33,12 @@ fi
 echo "Running from workspace directory: ${workspace_dir}"
 cd "${workspace_dir}"
 
+events_file=$(mktemp)
+
 bazel build \
     --aspects=@bazel_clangd_helper//:build_defs.bzl%compile_commands_aspect \
     --output_groups=report \
+    --build_event_json_file="${events_file}" \
     "${build_targets[@]}"
 
 bazel_bin_dir="$(bazel info bazel-bin)"
@@ -43,9 +46,13 @@ bazel_bin_dir="$(bazel info bazel-bin)"
 # Combine all of the compile command fragments into a single compile_commands.json file.
 output_file="${workspace_dir}/compile_commands.json"
 echo "[" >"${output_file}"
-find "${bazel_bin_dir}/" -type f -name "*compile_commands.json" \
-    -exec cat {} + \
-    >>"${output_file}"
+
+# Extract *.compile_commands.json paths from the build events json file and
+# iterate over them.
+for i in $(grep -o -E '([^"]+compile_commands\.json)' ${events_file}); do
+  cat "${bazel_bin_dir}/$i" >> ${output_file};
+done;
+
 # Replace the placeholder workspace directory.
 sed -i "s|__BAZEL_WORKSPACE_DIR__|${workspace_dir}|g" "${output_file}"
 # Strip the last trailing comma.
