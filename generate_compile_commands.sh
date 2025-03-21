@@ -17,6 +17,23 @@
 
 set -eu
 
+extra_flags=""
+while getopts "c:o:" opt; do
+    case "${opt}" in
+    c)
+        extra_flags="--config=${OPTARG}"
+        ;;
+    o)
+        output_file="${OPTARG}"
+        ;;
+    *)
+        echo "Invalid option: ${opt}"
+        exit 1
+        ;;
+    esac
+done
+shift $((OPTIND - 1))
+
 build_targets=("$@")
 if [ ${#build_targets[@]} -eq 0 ]; then
     echo "No build targets provided." >&2
@@ -35,7 +52,7 @@ cd "${workspace_dir}"
 
 events_file=$(mktemp)
 
-bazel build \
+bazel build ${extra_flags:+"$extra_flags"} \
     --aspects=@bazel_clangd_helper//:build_defs.bzl%compile_commands_aspect \
     --output_groups=report \
     --build_event_json_file="${events_file}" \
@@ -44,14 +61,14 @@ bazel build \
 bazel_bin_dir="$(bazel info bazel-bin)"
 
 # Combine all of the compile command fragments into a single compile_commands.json file.
-output_file="${workspace_dir}/compile_commands.json"
+output_file=${output_file:-"${workspace_dir}/compile_commands.json"}
 echo "[" >"${output_file}"
 
 # Extract *.compile_commands.json paths from the build events json file and
 # iterate over them.
 for i in $(grep -o -E '([^"]+compile_commands\.json)' ${events_file}); do
-  cat "${bazel_bin_dir}/$i" >> ${output_file};
-done;
+    cat "${bazel_bin_dir}/$i" >>${output_file}
+done
 
 # Replace the placeholder workspace directory.
 sed -i "s|__BAZEL_WORKSPACE_DIR__|${workspace_dir}|g" "${output_file}"
@@ -78,3 +95,5 @@ for line in "${GITIGNORE_LINES[@]}"; do
         echo "${line}" >>"${workspace_dir}/.git/info/exclude"
     fi
 done
+
+rm -f "${events_file}"
