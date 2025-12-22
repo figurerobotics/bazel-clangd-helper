@@ -27,7 +27,23 @@ cc_binary(
     ],
 )
 
+cc_binary(
+    name = "merge_compile_commands",
+    srcs = ["merge_compile_commands.cc"],
+    deps = [
+        "@abseil-cpp//absl/container:flat_hash_map",
+        "@abseil-cpp//absl/flags:flag",
+        "@abseil-cpp//absl/flags:parse",
+        "@abseil-cpp//absl/strings",
+        "@nlohmann_json//:json",
+    ],
+)
+
 sh_binary(
     name = "generate_compile_commands",
     srcs = ["generate_compile_commands.sh"],
+    data = [
+        ":merge_compile_commands",
+    ],
+    deps = ["@bazel_tools//tools/bash/runfiles"],
 )

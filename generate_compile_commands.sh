@@ -15,7 +15,28 @@
 
 # Usage: bazel run //:generate_compile_commands -- <build_targets>
 
-set -eu
+set -euo pipefail
+
+# --- begin runfiles.bash initialization ---
+# Copy-pasted from Bazel's Bash runfiles library (tools/bash/runfiles/runfiles.bash).
+if [[ ! -d "${RUNFILES_DIR:-/dev/null}" && ! -f "${RUNFILES_MANIFEST_FILE:-/dev/null}" ]]; then
+    if [[ -f "$0.runfiles_manifest" ]]; then
+        export RUNFILES_MANIFEST_FILE="$0.runfiles_manifest"
+    elif [[ -f "$0.runfiles/MANIFEST" ]]; then
+        export RUNFILES_MANIFEST_FILE="$0.runfiles/MANIFEST"
+    elif [[ -f "$0.runfiles/bazel_tools/tools/bash/runfiles/runfiles.bash" ]]; then
+        export RUNFILES_DIR="$0.runfiles"
+    fi
+fi
+if [[ -f "${RUNFILES_DIR:-/dev/null}/bazel_tools/tools/bash/runfiles/runfiles.bash" ]]; then
+    source "${RUNFILES_DIR}/bazel_tools/tools/bash/runfiles/runfiles.bash"
+elif [[ -f "${RUNFILES_MANIFEST_FILE:-/dev/null}" ]]; then
+    source "$(grep -m1 "^bazel_tools/tools/bash/runfiles/runfiles.bash " "$RUNFILES_MANIFEST_FILE" | cut -d ' ' -f 2-)"
+else
+    echo >&2 "ERROR: cannot find @bazel_tools//tools/bash/runfiles:runfiles.bash"
+    exit 1
+fi
+# --- end runfiles.bash initialization ---
 
 extra_flags=""
 while getopts "c:o:" opt; do
@@ -40,6 +61,12 @@ if [ ${#build_targets[@]} -eq 0 ]; then
     exit 1
 fi
 
+MERGE_COMMANDS_BINARY=$(rlocation bazel_clangd_helper/merge_compile_commands)
+if [ -z "${MERGE_COMMANDS_BINARY}" ]; then
+    echo "Could not find merge_compile_commands binary." >&2
+    exit 1
+fi
+
 # When running from a sh_binary, the workspace dir is a directory in bazel-out.
 # `bazel info workspace` cannot be called from here so find the actual directory.
 if [ -n "${BUILD_WORKSPACE_DIRECTORY}" ]; then
@@ -58,25 +85,15 @@ bazel build ${extra_flags:+"$extra_flags"} \
     --build_event_json_file="${events_file}" \
     "${build_targets[@]}"
 
-bazel_bin_dir="$(bazel info bazel-bin)"
+bazel_bin_dir="$(bazel info ${extra_flags:+"$extra_flags"} bazel-bin)"
+echo "Looking in bazel-bin directory: ${bazel_bin_dir}"
 
-# Combine all of the compile command fragments into a single compile_commands.json file.
 output_file=${output_file:-"${workspace_dir}/compile_commands.json"}
-echo "[" >"${output_file}"
 
-# Extract *.compile_commands.json paths from the build events json file and
-# iterate over them.
-for i in $(grep -o -E '([^"]+compile_commands\.json)' ${events_file}); do
-    cat "${bazel_bin_dir}/$i" >>${output_file}
-done
-
-# Replace the placeholder workspace directory.
-sed -i "s|__BAZEL_WORKSPACE_DIR__|${workspace_dir}|g" "${output_file}"
-# Strip the last trailing comma.
-sed -i '$ s/,$//' "${output_file}"
-echo "]" >>"${output_file}"
-
-echo "Updated ${output_file}"
+"${MERGE_COMMANDS_BINARY}" \
+    --workspace_dir="${workspace_dir}" \
+    --compile_commands_path="${output_file}" \
+    --build_event_path="${events_file}"
 
 # Create the external symlink if not present already.
 if [ ! -e "${workspace_dir}/external" ]; then

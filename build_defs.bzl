@@ -23,7 +23,11 @@ def _get_toolchain_flags(ctx, is_cpp):
         unsupported_features = ctx.disabled_features,
     )
     if is_cpp:
-        return cc_common.get_memory_inefficient_command_line(
+        compiler_path = cc_common.get_tool_for_action(
+            feature_configuration = feature_configuration,
+            action_name = CPP_COMPILE_ACTION_NAME,
+        )
+        return [compiler_path] + cc_common.get_memory_inefficient_command_line(
             feature_configuration = feature_configuration,
             action_name = CPP_COMPILE_ACTION_NAME,
             variables = cc_common.create_compile_variables(
@@ -33,7 +37,12 @@ def _get_toolchain_flags(ctx, is_cpp):
                 add_legacy_cxx_options = True,
             ),
         )
-    return cc_common.get_memory_inefficient_command_line(
+    
+    compiler_path = cc_common.get_tool_for_action(
+        feature_configuration = feature_configuration,
+        action_name = C_COMPILE_ACTION_NAME,
+    )
+    return [compiler_path] + cc_common.get_memory_inefficient_command_line(
         feature_configuration = feature_configuration,
         action_name = C_COMPILE_ACTION_NAME,
         variables = cc_common.create_compile_variables(
