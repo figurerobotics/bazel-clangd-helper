@@ -49,7 +49,7 @@ void GenerateCompileCommands(const std::string &output_path,
                                                  positional_flags.end());
   output["directory"] = directory;
 
-  output_file << output.dump(2) << ",\n";
+  output_file << output.dump(2);
   output_file.close();
 }
 
