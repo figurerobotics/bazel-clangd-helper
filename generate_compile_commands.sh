@@ -29,8 +29,10 @@ if [[ ! -d "${RUNFILES_DIR:-/dev/null}" && ! -f "${RUNFILES_MANIFEST_FILE:-/dev/
     fi
 fi
 if [[ -f "${RUNFILES_DIR:-/dev/null}/bazel_tools/tools/bash/runfiles/runfiles.bash" ]]; then
+    # shellcheck disable=SC1091
     source "${RUNFILES_DIR}/bazel_tools/tools/bash/runfiles/runfiles.bash"
 elif [[ -f "${RUNFILES_MANIFEST_FILE:-/dev/null}" ]]; then
+    # shellcheck disable=SC1090
     source "$(grep -m1 "^bazel_tools/tools/bash/runfiles/runfiles.bash " "$RUNFILES_MANIFEST_FILE" | cut -d ' ' -f 2-)"
 else
     echo >&2 "ERROR: cannot find @bazel_tools//tools/bash/runfiles:runfiles.bash"
@@ -38,24 +40,44 @@ else
 fi
 # --- end runfiles.bash initialization ---
 
-extra_flags=""
-while getopts "c:o:" opt; do
-    case "${opt}" in
-    c)
-        extra_flags="--config=${OPTARG}"
-        ;;
-    o)
-        output_file="${OPTARG}"
-        ;;
-    *)
-        echo "Invalid option: ${opt}"
-        exit 1
-        ;;
-    esac
-done
-shift $((OPTIND - 1))
+build_config=""
+output_file=""
+build_targets=()
 
-build_targets=("$@")
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -c=*|--config=*)
+      build_config="${1#*=}"
+      shift
+      ;;
+    -c|--config)
+      build_config="$2"
+      shift 2
+      ;;
+    -o=*|--output=*)
+      output_file="${1#*=}"
+      shift
+      ;;
+    -o|--output)
+      output_file="$2"
+      shift 2
+      ;;
+    --)
+      shift
+      build_targets+=("$@")
+      break
+      ;;
+    -*)
+      echo "Unknown option: $1"
+      exit 1
+      ;;
+    *)
+      build_targets+=("$1")
+      shift
+      ;;
+  esac
+done
+
 if [ ${#build_targets[@]} -eq 0 ]; then
     echo "No build targets provided." >&2
     exit 1
@@ -79,11 +101,17 @@ cd "${workspace_dir}"
 
 events_file=$(mktemp)
 
-bazel build ${extra_flags:+"$extra_flags"} \
-    --aspects=@bazel_clangd_helper//:build_defs.bzl%compile_commands_aspect \
-    --output_groups=report \
-    --build_event_json_file="${events_file}" \
-    "${build_targets[@]}"
+build_args=(
+    --aspects=@bazel_clangd_helper//:build_defs.bzl%compile_commands_aspect
+    --output_groups=report
+    --build_event_json_file="${events_file}"
+)
+if [ -n "${build_config}" ]; then
+    build_args+=("--config=${build_config}")
+fi
+build_args+=("${build_targets[@]}")
+
+bazel build "${build_args[@]}"
 
 bazel_bin_dir="$(bazel info ${extra_flags:+"$extra_flags"} bazel-bin)"
 echo "Looking in bazel-bin directory: ${bazel_bin_dir}"
@@ -107,10 +135,15 @@ GITIGNORE_LINES=(
     "/compile_commands.json"
     ".cache/"
 )
-for line in "${GITIGNORE_LINES[@]}"; do
-    if ! grep -q "${line}" "${workspace_dir}/.git/info/exclude"; then
-        echo "${line}" >>"${workspace_dir}/.git/info/exclude"
-    fi
-done
+GIT_EXCLUDE_FILE="${workspace_dir}/.git/info/exclude"
+if [ -e "${GIT_EXCLUDE_FILE}" ]; then
+    for line in "${GITIGNORE_LINES[@]}"; do
+        if ! grep -q "${line}" "${workspace_dir}/.git/info/exclude"; then
+            echo "${line}" >>"${workspace_dir}/.git/info/exclude"
+        fi
+    done
+else
+    echo "Skipping .git/info/exclude update (directory is a worktree or not a git repository)"
+fi
 
 rm -f "${events_file}"
