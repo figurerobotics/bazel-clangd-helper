@@ -42,6 +42,7 @@ fi
 
 build_config=""
 output_file=""
+test_local_repo=""
 build_targets=()
 
 while [[ $# -gt 0 ]]; do
@@ -60,6 +61,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     -o|--output)
       output_file="$2"
+      shift 2
+      ;;
+    --test-local-repo=*)
+      test_local_repo="${1#*=}"
+      shift
+      ;;
+    --test-local-repo)
+      test_local_repo="$2"
       shift 2
       ;;
     --)
@@ -106,9 +115,21 @@ build_args=(
     --output_groups=report
     --build_event_json_file="${events_file}"
 )
+
 if [ -n "${build_config}" ]; then
     build_args+=("--config=${build_config}")
 fi
+
+# Allow specifying a local "bazel_clangd_helper" repo for development.
+if [[ -n "${test_local_repo}" ]]; then
+  if [[ ! -d "${test_local_repo}" ]]; then
+    echo "Test local repo not found: ${test_local_repo}"
+    exit 1
+  fi
+  echo "Using test local repo: ${test_local_repo}"
+  build_args+=("--override_repository=bazel_clangd_helper+=${test_local_repo}")
+fi
+
 build_args+=("${build_targets[@]}")
 
 bazel build "${build_args[@]}"

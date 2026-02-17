@@ -52,9 +52,22 @@ def _get_toolchain_flags(ctx, is_cpp):
         ),
     )
 
+# Rust rules provide CcInfo but we don't want to generate compile commands for them.
+_IGNORED_RULE_KINDS = [
+    "rust_library",
+    "rust_binary",
+    "rust_test",
+    "rust_proc_macro",
+    "rust_shared_library",
+    "rust_static_library",
+]
+
 def _compile_commands_aspect_impl(target, ctx):
     # Ignore external targets.
     if target.label.workspace_root.startswith("external"):
+        return []
+
+    if ctx.rule.kind in _IGNORED_RULE_KINDS:
         return []
 
     if CcInfo not in target:
