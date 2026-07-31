@@ -112,7 +112,10 @@ def _compile_commands_aspect_impl(target, ctx):
         args = ctx.actions.args()
         args.add("--source_path", src.short_path)
         output_file = ctx.actions.declare_file(
-            "{}.{}.compile_commands.json".format(target.label.name, src.basename),
+            "{}.{}.compile_commands.json".format(
+                target.label.name,
+                src.short_path.replace("/", "_"),
+            ),
         )
         args.add("--output_path", output_file)
 
