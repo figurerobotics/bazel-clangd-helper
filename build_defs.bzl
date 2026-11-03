@@ -52,6 +52,37 @@ def _get_toolchain_flags(ctx, is_cpp):
         ),
     )
 
+def _make_common_args(ctx, compile_context, is_cpp):
+    common_args = ctx.actions.args()
+
+    # Set a placeholder for the workspace directory which will be replaced later.
+    # We avoid passing in the workspace directory via flag or environment variable to avoid
+    # discarding the analysis cache.
+    # TODO(michaelahn): Consider a better way to get the workspace directory from bazel.
+    common_args.add("--directory", "__BAZEL_WORKSPACE_DIR__")
+
+    # Positional args.
+    common_args.add("--")
+    common_args.add_all(_get_toolchain_flags(ctx, is_cpp))
+
+    for define in compile_context.defines.to_list() + compile_context.local_defines.to_list():
+        common_args.add("-D" + define)
+    common_args.add_all(compile_context.quote_includes.to_list(), before_each = "-iquote")
+    common_args.add_all(compile_context.system_includes.to_list(), before_each = "-isystem")
+    common_args.add_all(compile_context.external_includes.to_list(), before_each = "-isystem")
+    for include in compile_context.includes.to_list():
+        common_args.add("-I" + include)
+    for include in compile_context.framework_includes.to_list():
+        common_args.add("-F" + include)
+    return common_args
+
+def _is_cpp_src(src, target_is_cpp):
+    if src.extension == "c":
+        return False
+    if src.extension in _CPP_EXTENSIONS:
+        return True
+    return target_is_cpp
+
 # Rust rules provide CcInfo but we don't want to generate compile commands for them.
 _IGNORED_RULE_KINDS = [
     "rust_library",
@@ -82,33 +113,20 @@ def _compile_commands_aspect_impl(target, ctx):
     if len(srcs) == 0:
         return []
 
-    is_cpp = _is_cpp_srcs(srcs)
-
-    common_args = ctx.actions.args()
-
-    # Set a placeholder for the workspace directory which will be replaced later.
-    # We avoid passing in the workspace directory via flag or environment variable to avoid
-    # discarding the analysis cache.
-    # TODO(michaelahn): Consider a better way to get the workspace directory from bazel.
-    common_args.add("--directory", "__BAZEL_WORKSPACE_DIR__")
-
-    # Positional args.
-    common_args.add("--")
-    common_args.add_all(_get_toolchain_flags(ctx, is_cpp))
-
+    # Pick C or C++ flags per source file, so a target that mixes .c and .cc
+    # sources doesn't get C++-only flags (e.g. -std=c++17) on its .c files.
+    # Headers and other files follow the target as a whole.
+    target_is_cpp = _is_cpp_srcs(srcs)
     compile_context = target[CcInfo].compilation_context
-    for define in compile_context.defines.to_list() + compile_context.local_defines.to_list():
-        common_args.add("-D" + define)
-    common_args.add_all(compile_context.quote_includes.to_list(), before_each = "-iquote")
-    common_args.add_all(compile_context.system_includes.to_list(), before_each = "-isystem")
-    common_args.add_all(compile_context.external_includes.to_list(), before_each = "-isystem")
-    for include in compile_context.includes.to_list():
-        common_args.add("-I" + include)
-    for include in compile_context.framework_includes.to_list():
-        common_args.add("-F" + include)
+    common_args_by_lang = {}
 
     output_files = []
     for src in srcs:
+        is_cpp = _is_cpp_src(src, target_is_cpp)
+        if is_cpp not in common_args_by_lang:
+            common_args_by_lang[is_cpp] = _make_common_args(ctx, compile_context, is_cpp)
+        common_args = common_args_by_lang[is_cpp]
+
         args = ctx.actions.args()
         args.add("--source_path", src.short_path)
         output_file = ctx.actions.declare_file(
